@@ -49,7 +49,8 @@ class Agent(BaseAgent):
                 for j in range(self.grid_width):
                     # print(self.states[i][j].cords, '         ' ,self.states[i][j].v, '         ' ,self.states[i][j].r, '    ', self.states[i][j].pi)
                     print(f'{self.states[i][j].v : .2f}', end=' ')
-            print('-----------------------------------------------------------')  
+            print('-----------------------------------------------------------')
+           
         return agent.pi
 
 
