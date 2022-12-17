@@ -31,26 +31,20 @@ class Agent(BaseAgent):
       row_index, column_index = agent.cords[0], agent.cords[1]
       self.update_grid()
 
-    #   if self.is_End(agent, agent):
-    #       self.run = False
-    #       return Action.NOOP
-
       if agent.cords in self.keys:
           self.collected_keys.append(agent)
       if agent.cords in self.diamonds:
-        agent.dimond = ''
+        agent.diamond = ''
       
 
+      if len(self.diamonds) == 0:
+        print('2')
+        return Action.NOOP
 
-      if not self.run:
 
-        if len(self.diamonds) == 0:
-            return Action.NOOP
-
-        self.get_reward()
-      
-        self.q_learning(row_index, column_index)
-        self.run = True
+      self.get_reward()
+      self.q_learning(row_index, column_index)
+      self.run = True
         # for row in range(self.grid_height):
         #     print()
         #     for col in range(self.grid_width):
@@ -204,7 +198,19 @@ class Agent(BaseAgent):
         #   print("||||||||||||||||")
           return self.total_actions[np.random.randint(9)]
 
-  def get_next_location(self, row_index, column_index ,action):
+  def get_next_location(self, row_index, column_index ,epsilon):
+
+        if np.random.random() < epsilon:
+        #   print(self.total_actions[np.argmax(self.q_values[current_row_index, current_column_index])])
+        #   print(np.argmax(self.q_values[current_row_index, current_column_index]))
+        #   print("1")
+        #   print("||||||||||||||||")
+            action = self.total_actions[np.argmax(self.q_values[row_index, column_index])]
+        else:
+        #   print(self.total_actions[np.random.randint(9)])
+        #   print("2")
+        #   print("||||||||||||||||")
+            action = self.total_actions[np.random.randint(9)]
 
         actions = self.get_actions(row_index, column_index)
 
@@ -236,14 +242,11 @@ class Agent(BaseAgent):
 
             if action == Action.DOWN_RIGHT:
                 row_index, column_index = row_index+1, column_index+1
-
-            
-                
-                
-
             # print(row_index, column_index)
         # print(row_index, column_index)
-        return row_index, column_index
+            return action, row_index, column_index
+        else:
+            return Action.NOOP, row_index, column_index
         
 
   def is_End(self, state, target):
@@ -267,30 +270,27 @@ class Agent(BaseAgent):
       terminal = self.is_terminal_state(row_index, column_index)
     
       if terminal:
-        # print("1")
+        print("1")
         return Action.NOOP
       else:
-        #   best_actions.append()
-        while (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1):
-            # print('1')
-            action = self.get_next_action(row_index, column_index, 1.)
-            # print(action.value)
-            row_index, column_index = self.get_next_location(row_index, column_index, action) 
-            # print(row_index, column_index)
-            return action
-        #   shortest_path.append([row_index, column_index])
+    #   best_actions.append()
+
+        # print(action.value)
+        action, row_index, column_index = self.get_next_location(row_index, column_index, 1.) 
+        # print(row_index, column_index
+        return action
+    #   shortest_path.append([row_index, column_index])
       
 
   def q_learning(self, row_index, column_index):
     epsilon = 0.9 #the percentage of time when we should take the best action (instead of a random action)
-    discount_factor = 0.9 #discount factor for future rewards
-    learning_rate = 0.9 #the rate at which the AI agent should learn
+    discount_factor = 1 #discount factor for future rewards
+    learning_rate = 0.7 #the rate at which the AI agent should learn
     q_diamonds = self.diamonds
 
     #run through 1000 training episodes
-    for episode in range(1000):
+    for episode in range(10000):
     #   print("1")
-      terminal = self.is_terminal_state(row_index, column_index)
       #get the starting location for this episode
 
       #continue taking actions (i.e., moving) until we reach a terminal state
@@ -298,22 +298,15 @@ class Agent(BaseAgent):
     #   print(row_index, column_index)
       if len(q_diamonds) != 0:
         q_diamonds.pop(0)
-      while not terminal and (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1) and len(q_diamonds) != 0:
+      while not self.is_terminal_state(row_index, column_index) and (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1) and len(q_diamonds) != 0:
         #choose which action to take (i.e., where to move next)
-        action = self.get_next_action(row_index, column_index, epsilon)
-        action_index = self.total_actions.index(action)
-        # print(action)
-        # print("||||||||||||||")
-        # print(action_index)
-
         #perform the chosen action, and transition to the next state (i.e., move to the next location)
         old_row_index, old_column_index = row_index, column_index #store the old row and column indexes
-        row_index, column_index = self.get_next_location(row_index, column_index, action)
+        # self.states[old_row_index][old_column_index].r -= 1
+        action, row_index, column_index = self.get_next_location(row_index, column_index, epsilon)
+        action_index = self.total_actions.index(action)
         # print(row_index, column_index)
-            
-
         # print("2")
-        
         #receive the reward for moving to the new state, and calculate the temporal difference
         reward = self.states[row_index][column_index].r
         # print(row_index, column_index)
@@ -328,7 +321,6 @@ class Agent(BaseAgent):
         new_q_value = old_q_value + (learning_rate * temporal_difference)
         self.q_values[old_row_index, old_column_index, action_index] = new_q_value
         if self.states[row_index][column_index].diamond == '1' or self.states[row_index][column_index].diamond == '2' or self.states[row_index][column_index].diamond == '3' or self.states[row_index][column_index].diamond == '4':
-            terminal = True
             self.states[row_index][column_index].diamond = ''
             self.states[row_index][column_index].r = -1
         
