@@ -35,11 +35,13 @@ class Agent(BaseAgent):
   collected_keys = []
   run = False
   target = None
+  has_key = False
   q_values =[]
   total_actions = [Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT, Action.UP_LEFT, Action.UP_RIGHT, Action.DOWN_LEFT, Action.DOWN_RIGHT, Action.NOOP]
   last_diamond = '0'
   combo = ''
   combo_value = 0
+  turn_num = 0
 
   def __init__(self):
       super().__init__()
@@ -71,6 +73,7 @@ class Agent(BaseAgent):
 
       distance = self.get_reward()
       self.q_learning(row_index, column_index, distance)
+      self.turn_num += 1
     #   print(self.q_values[0,0])
     #   print('2')
       self.run = True
@@ -196,30 +199,29 @@ class Agent(BaseAgent):
         self.states[row][col].r =  -0.04
 
         if self.states[row][col].is_wired:
-          self.states[row][col].r = self.states[row][col].r - 0.1
+          self.states[row][col].r = -0.08
 
         elif self.states[row][col].is_door:
         #   print('1')
-          has_key = False
           rowNum = [-1, 0, 0, 1, 1, -1, 1, -1]
           colNum = [0, -1, 1, 0, 1, -1, -1, 1]
           for k in self.collected_keys:
             # print(k)
             if k.key.upper() == self.states[row][col].door:
-              has_key = True
-              self.states[row][col].r += 20
+              self.has_key = True
+              self.states[row][col].r +=0.0
               for i in range(8):
                 if row + rowNum[i] >= 0 and row + rowNum[i] <= self.grid_height -1 and col + colNum[i] >= 0 and col + colNum[i] <= self.grid_width -1:
                     self.states[row + rowNum[i]][col + colNum[i]].r += 0
               
-          if not has_key:
+          if not self.has_key:
             self.states[row][col].r = self.states[row][col].r - 2
 
         elif self.states[row][col].is_wall:
             self.states[row][col].r = self.states[row][col].r - 2
 
         elif self.states[row][col].key:
-            self.states[row][col].r = self.states[row][col].r + 20
+            self.states[row][col].r = self.states[row][col].r + 0.0
 
         # elif self.states[row][col].diamond == '1' or self.states[row][col].diamond == '2' or self.states[row][col].diamond == '3' or self.states[row][col].diamond == '4':
         #     self.states[row][col].r = self.states[row][col].r + 40
@@ -227,16 +229,18 @@ class Agent(BaseAgent):
 
         goal, goal_type = self.get_near_diamonds() 
         selected_perm, max_score = self.cluster_max_score(goal_type)
-        x = 0
+        x = 1
         if len(goal_type) != 0:
             for i in selected_perm:
                 for j in goal:
                     if i == j.diamond:
-                        j.r = (len(selected_perm)*400 - x)/(distance)
-                        # print('g')
-                        x += 130
+                        j.r = (len(selected_perm)*7)/((distance/3) + x)
+                        # print(j.r)
+                x += 2
+                # print()
         else:
-            nearest_diamond.r = 180
+            nearest_diamond.r = 1.2 * (distance*3)/2
+            # print(nearest_diamond.r)
             
     return distance
         
@@ -366,7 +370,7 @@ class Agent(BaseAgent):
       for row in range(self.grid_height):
         for col in range(self.grid_width):
             if row == current_row_index and col == current_column_index:
-                if self.states[row][col].r < -1.8:
+                if self.states[row][col].r < -5:
                     return True
                 else:
                     return False
@@ -393,27 +397,43 @@ class Agent(BaseAgent):
       
 
   def q_learning(self, row_index, column_index, distance):
+    terminal = self.is_terminal_state(row_index, column_index)
     epsilon = 0.8
-    if distance <= 2:
-        epsilon = 0.85 #the percentage of time when we should take the best action (instead of a random action)
-    elif distance >2 and distance < 4:
-        epsilon = 0.78 #the percentage of time when we should take the best action (instead of a random action)
-    elif distance >= 4 and distance < 6 :
-        epsilon = 0.68 #the percentage of time when we should take the best action (instead of a random action)
-    elif distance >= 6 and distance < 8 :
-        epsilon = 0.45 #the percentage of time when we should take the best action (instead of a random action)
-    elif distance >= 8 and distance < 10 :
-        epsilon = 0.25 #the percentage of time when we should take the best action (instead of a random action)
+    if (self.turn_num >= 23 and self.turn_num <= 59) or (self.turn_num >= 71 and self.turn_num <= 100):
+        # print(self.turn_num)
+        # print(distance)
+        if distance <= 2:
+            epsilon = 0.83 + 0.12 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >2 and distance < 4:
+            epsilon = 0.78 + 0.05 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 4 and distance < 6 :
+            epsilon = 0.67 + 0.07 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 6 and distance < 8 :
+            epsilon = 0.5 + 0.12 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 8 :
+            epsilon = 0.35 + 0.30 #the percentage of time when we should take the best action (instead of a random action)
+    elif (self.turn_num >= 0 and self.turn_num <= 22) or (self.turn_num >= 60 and self.turn_num <= 70):
+        if distance <= 2:
+            epsilon = 0.83 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >2 and distance < 4:
+            epsilon = 0.78 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 4 and distance < 6 :
+            epsilon = 0.67 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 6 and distance < 8 :
+            epsilon = 0.5 #the percentage of time when we should take the best action (instead of a random action)
+        elif distance >= 8 :
+            epsilon = 0.35 #the percentage of time when we should take the best action (instead of a random action)
+
     # print(epsilon)
+    learning_rate = 0.75 #the rate at which the AI agent should learn
     discount_factor = 0.85 #discount factor for future rewards
-    learning_rate = 0.4 #the rate at which the AI agent should learn
     q_diamonds = self.diamonds
 
     is_frist_action = True
     old_action =''
 
     #run through 1000 training episodes
-    for episode in range(10000):
+    for episode in range(22250):
     #   print("1")
       #get the starting location for this episode
 
@@ -422,7 +442,7 @@ class Agent(BaseAgent):
     #   print(row_index, column_index)
       if len(q_diamonds) != 0:
         q_diamonds.pop(0)
-      while not self.is_terminal_state(row_index, column_index) and (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1) and len(q_diamonds) != 0:
+      while ((not terminal and (not self.states[row_index][column_index].is_wall)) and (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1) ) and (len(q_diamonds) != 0):
         #choose which action to take (i.e., where to move next)
         #perform the chosen action, and transition to the next state (i.e., move to the next location)
         old_row_index, old_column_index = row_index, column_index #store the old row and column indexes
@@ -437,9 +457,9 @@ class Agent(BaseAgent):
         action, row_index, column_index = self.get_next_location(row_index, column_index, epsilon)
         action_index = self.total_actions.index(action)
         if old_action == Action.NOOP and action == Action.NOOP:
-            self.states[old_row_index][old_column_index].r -= 0
+            self.states[old_row_index][old_column_index].r -= 0.04
         else:
-            self.states[old_row_index][old_column_index].r -= 0.02
+            self.states[old_row_index][old_column_index].r -= 0.04
         # print(row_index, column_index)
         # print("2")
         #receive the reward for moving to the new state, and calculate the temporal difference
@@ -455,12 +475,27 @@ class Agent(BaseAgent):
         #update the Q-value for the previous state and action pair
         new_q_value = old_q_value + (learning_rate * temporal_difference)
         self.q_values[old_row_index, old_column_index, action_index] = new_q_value
-        if self.states[row_index][column_index].diamond == '1' or self.states[row_index][column_index].diamond == '2' or self.states[row_index][column_index].diamond == '3' or self.states[row_index][column_index].diamond == '4':
+        if (self.states[row_index][column_index].diamond == '1' or self.states[row_index][column_index].diamond == '2' or self.states[row_index][column_index].diamond == '3' or self.states[row_index][column_index].diamond == '4') and (self.states[row_index][column_index] in self.diamonds):
             self.states[row_index][column_index].diamond = ''
+            # self.states[row_index][column_index].r = -0.04
+            self.states[row_index][column_index].r += -0.08
+        if (self.states[row_index][column_index].key == 'y' or self.states[row_index][column_index].key == 'r' or self.states[row_index][column_index].key == 'g') and (self.states[row_index][column_index] in self.collected_keys):
+            self.states[row_index][column_index].key = ''
             self.states[row_index][column_index].r = -0.04
-        if self.states[row_index][column_index].key == 'y' or self.states[row_index][column_index].key == 'r' or self.states[row_index][column_index].key == 'g':
-            # self.states[row_index][column_index].key = ''
+            self.states[row_index][column_index].r += -0.04
+        if self.states[row_index][column_index].is_wired:
+            self.states[row_index][column_index].is_wired = ''
             self.states[row_index][column_index].r = -0.04
+            self.states[row_index][column_index].r += -0.04
+
+        for k in self.collected_keys:
+            if k.key.upper() == self.states[row_index][column_index].door:
+                self.has_key = True
+
+        if self.states[row_index][column_index].is_door and self.has_key:
+            self.states[row_index][column_index].is_door = ''
+            self.states[row_index][column_index].r = -0.04
+            self.states[row_index][column_index].r +=0.04
         
     
     # def print_stuff(self):
