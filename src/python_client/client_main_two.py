@@ -1,506 +1,573 @@
-from itertools import permutations
+from collections import deque
 import random
 from base import BaseAgent, Action
 from MainClass import Node
 import numpy as np
 
+
 class Agent(BaseAgent):
 
-  DIAMOND_SCORES = {
-        '01': 50,
-        '02': 0,
-        '03': 0,
-        '04': 0,
-        '11': 50,
-        '12': 200,
-        '13': 100,
-        '14': 0,
-        '21': 100,
-        '22': 50,
-        '23': 200,
-        '24': 100,
-        '31': 50,
-        '32': 100,
-        '33': 50,
-        '34': 200,
-        '41': 250,
-        '42': 50,
-        '43': 100,
-        '44': 50,
+    DIAMOND_SCORES = {
+        "01": 50,
+        "02": 0,
+        "03": 0,
+        "04": 0,
+        "11": 50,
+        "12": 200,
+        "13": 100,
+        "14": 0,
+        "21": 100,
+        "22": 50,
+        "23": 200,
+        "24": 100,
+        "31": 50,
+        "32": 100,
+        "33": 50,
+        "34": 200,
+        "41": 250,
+        "42": 50,
+        "43": 100,
+        "44": 50,
     }
 
-  states = []
-  diamonds = []
-  keys = []
-  collected_keys = []
-  run = False
-  target = None
-  has_key = False
-  q_values =[]
-  total_actions = [Action.UP, Action.DOWN, Action.LEFT, Action.RIGHT, Action.UP_LEFT, Action.UP_RIGHT, Action.DOWN_LEFT, Action.DOWN_RIGHT, Action.NOOP]
-  last_diamond = '0'
-  combo = ''
-  combo_value = 0
-  turn_num = 0
+    states = []
+    diamonds = []
+    keys = []
+    collected_keys = []
+    key_values = []
+    target = None
+    last_diamond = '0'
+    q_values = []
+    total_actions = [
+        Action.UP,
+        Action.DOWN,
+        Action.LEFT,
+        Action.RIGHT,
+        Action.UP_LEFT,
+        Action.UP_RIGHT,
+        Action.DOWN_LEFT,
+        Action.DOWN_RIGHT,
+        Action.NOOP,
+    ]
 
-  def __init__(self):
-      super().__init__()
+    def __init__(self):
+        super().__init__()
 
-      self.states = [[None for _ in range(self.grid_width)] for _ in range(self.grid_height)]
-      self.q_values = np.zeros((self.grid_height, self.grid_width, 9))
+        self.states = [
+            [None for _ in range(self.grid_width)] for _ in range(self.grid_height)
+        ]
+        self.q_values = np.zeros((self.grid_height, self.grid_width, 9))
 
-      for row in range(self.grid_height):
-          for col in range(self.grid_width):
-              self.states[row][col] = Node((row, col), 0)
+        for row in range(self.grid_height):
+            for col in range(self.grid_width):
+                self.states[row][col] = Node((row, col), 0)
 
-  
-  def do_turn(self) -> Action:
+    def do_turn(self) -> Action:
 
-      agent = self.get_agent()
-      row_index, column_index = agent.cords[0], agent.cords[1]
-      self.update_grid()
+        agent = self.get_agent()
+        row_index, column_index = agent.cords[0], agent.cords[1]
 
-      if agent.cords in self.keys:
-          self.collected_keys.append(agent)
-      if agent.cords in self.diamonds:
-        agent.diamond = ''
-      
+        if agent.cords in self.keys:
+            self.collected_keys.append(agent)
+            self.key_values.append(agent.key)
+            self.keys.remove(agent.cords)
+            self.states[row_index][column_index].key = ""
 
-      if len(self.diamonds) == 0:
-        print('2')
-        return Action.NOOP
+        if agent.cords in self.diamonds:
+            self.last_diamond = agent.diamond
+            agent.diamond = ""
 
-
-      distance = self.get_reward()
-      self.q_learning(row_index, column_index, distance)
-      self.turn_num += 1
-    #   print(self.q_values[0,0])
-    #   print('2')
-      self.run = True
-    #   for row in range(self.grid_height):
-    #     print()
-    #     for col in range(self.grid_width):
-    #         if self.states[3][0].r != -101:
-    #             print(self.states[row][col].r, end=",")
-    #   print()
-    #   print("|||||||||||")
-            
+        self.update_grid()
         
-    #   for i in range(len(best_actions)-1):
-    #     print(best_actions[i])
-    #     return best_actions[i]
-      return self.get_shortest_path(row_index, column_index)
+        if len(self.diamonds) == 0:
+            return Action.NOOP
 
-        
+        self.get_reward()
+
+        distance = self.positive_trace()
+
+        self.q_learning(row_index, column_index, distance)
+
+        return self.get_shortest_path(row_index, column_index)
+
+    def get_agent(self):
+        for i in range(self.grid_height):
+            for j in range(self.grid_width):
+                if "A" in self.grid[i][j]:
+                    return self.states[i][j]
+
+    def get_target(self):
+        return self.diamonds.pop(0)
+
+    def update_grid(self):
+        for i in range(self.grid_height):
+            for j in range(self.grid_width):
+
+                if "W" in self.grid[i][j]:
+                    self.states[i][j].is_wall = True
+                elif "*" in self.grid[i][j]:
+                    self.states[i][j].is_wired = True
+                    self.states[i][j].type = "barbed"
+                elif "T" in self.grid[i][j]:
+                    self.states[i][j].type = "teleport"
+
+                # get doors
+                elif "G" in self.grid[i][j]:
+                    if "g" not in self.key_values:
+                        self.states[i][j].door = "G"
+                        self.states[i][j].is_door = True
+                    else:
+                        self.states[i][j].door = ""
+                        self.states[i][j].is_door = False
+                elif "R" in self.grid[i][j]:
+                    if "r" not in self.key_values:
+                        self.states[i][j].door = "R"
+                        self.states[i][j].is_door = True
+                    else:
+                        self.states[i][j].door = ""
+                        self.states[i][j].is_door = False
+                elif "Y" in self.grid[i][j]:
+                    if "y" not in self.key_values:
+                        self.states[i][j].door = "Y"
+                        self.states[i][j].is_door = True
+                    else:
+                        self.states[i][j].door = ""
+                        self.states[i][j].is_door = False
+
+                # get keys
+                elif "g" in self.grid[i][j] and (i, j) not in self.keys:
+                        self.states[i][j].key = "g"
+                        self.states[i][j].type = "slider"
+                        self.keys.append((i, j))
+                        self.states[i][j].available = True
+
+                elif "r" in self.grid[i][j] and (i, j) not in self.keys:
+                    self.states[i][j].key = "r"
+                    self.states[i][j].type = "slider"
+                    self.keys.append((i, j))
+                    self.states[i][j].available = True
+                elif "y" in self.grid[i][j] and (i, j) not in self.keys:
+                    self.states[i][j].key = "y"
+                    self.states[i][j].type = "slider"
+                    self.keys.append((i, j))
+                    self.states[i][j].available = True
+
+                # get diamonds
+                elif "1" in self.grid[i][j] and self.states[i][j] not in self.diamonds:
+                    self.states[i][j].type = "slider"
+                    self.states[i][j].diamond = "1"
+                    self.diamonds.append(self.states[i][j])
+                    self.states[i][j].available = True
+                elif "2" in self.grid[i][j] and self.states[i][j] not in self.diamonds:
+                    self.states[i][j].type = "slider"
+                    self.states[i][j].diamond = "2"
+                    self.diamonds.append(self.states[i][j])
+                    self.states[i][j].available = True
+                elif "3" in self.grid[i][j] and self.states[i][j] not in self.diamonds:
+                    self.states[i][j].type = "slider"
+                    self.states[i][j].diamond = "3"
+                    self.diamonds.append(self.states[i][j])
+                    self.states[i][j].available = True
+                elif "4" in self.grid[i][j] and self.states[i][j] not in self.diamonds:
+                    self.states[i][j].type = "slider"
+                    self.states[i][j].diamond = "4"
+                    self.diamonds.append(self.states[i][j])
+                    self.states[i][j].available = True
+
+    def get_actions(self, row_index, column_index):
+        actions = []
+
+        if (
+            row_index - 1 >= 0
+            and self.states[row_index - 1][column_index].is_wall == False
+        ):
+            if self.states[row_index - 1][column_index].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index - 1][column_index].door:
+                        actions.append(Action.UP)
+            else:
+                actions.append(Action.UP)
+
+        if (
+            row_index + 1 <= self.grid_height - 1
+            and self.states[row_index + 1][column_index].is_wall == False
+        ):
+            if self.states[row_index + 1][column_index].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index + 1][column_index].door:
+                        actions.append(Action.DOWN)
+            else:
+                actions.append(Action.DOWN)
+
+        if (
+            column_index - 1 >= 0
+            and self.states[row_index][column_index - 1].is_wall == False
+        ):
+            if self.states[row_index][column_index - 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index][column_index - 1].door:
+                        actions.append(Action.LEFT)
+            else:
+                actions.append(Action.LEFT)
+
+        if (
+            column_index + 1 <= self.grid_width - 1
+            and self.states[row_index][column_index + 1].is_wall == False
+        ):
+            if self.states[row_index][column_index + 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index][column_index + 1].door:
+                        actions.append(Action.RIGHT)
+            else:
+                actions.append(Action.RIGHT)
+
+        if (
+            row_index - 1 >= 0
+            and column_index - 1 >= 0
+            and self.states[row_index - 1][column_index - 1].is_wall == False
+        ):
+            if self.states[row_index - 1][column_index - 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index - 1][column_index - 1].door:
+                        actions.append(Action.UP_LEFT)
+            else:
+                actions.append(Action.UP_LEFT)
+
+        if (
+            row_index - 1 >= 0
+            and column_index + 1 <= self.grid_width - 1
+            and self.states[row_index - 1][column_index + 1].is_wall == False
+        ):
+            if self.states[row_index - 1][column_index + 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index - 1][column_index + 1].door:
+                        actions.append(Action.UP_RIGHT)
+            else:
+                actions.append(Action.UP_RIGHT)
+
+        if (
+            row_index + 1 <= self.grid_height - 1
+            and column_index - 1 >= 0
+            and self.states[row_index + 1][column_index - 1].is_wall == False
+        ):
+            if self.states[row_index + 1][column_index - 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index + 1][column_index - 1].door:
+                        actions.append(Action.DOWN_LEFT)
+            else:
+                actions.append(Action.DOWN_LEFT)
+
+        if (
+            row_index + 1 <= self.grid_height - 1
+            and column_index + 1 <= self.grid_width - 1
+            and self.states[row_index + 1][column_index + 1].is_wall == False
+        ):
+            if self.states[row_index + 1][column_index + 1].is_door:
+                for k in self.collected_keys:
+                    if k.key.upper() == self.states[row_index + 1][column_index + 1].door:
+                        actions.append(Action.DOWN_RIGHT)
+            else:
+                actions.append(Action.DOWN_RIGHT)
+
+        actions.append(Action.NOOP)
+
+        return actions
+
+    def get_reward(self):
+        for row in range(self.grid_height):
+            for col in range(self.grid_width):
+                self.states[row][col].r = -1
+
+                if self.states[row][col].is_wired:
+                    self.states[row][col].r = -0.5
+
+                elif self.states[row][col].is_door:
+                    has_key = False
+                    for k in self.collected_keys:
+                        if k.key.upper() == self.states[row][col].door:
+                            has_key = True
+                            self.states[row][col].r = -1
+                    if not has_key:
+                        self.states[row][col].r = 0
+
+                elif self.states[row][col].is_wall:
+                    self.states[row][col].r = 0
+
+                elif self.states[row][col].key:
+                    self.states[row][col].r = 50
 
 
+    def positive_trace(self):
+        start = self.get_agent()
+        row_index, column_index = start.cords[0], start.cords[1]
+        dest = ""
+        found = False
+        while found == False:
+            shortest = 1000
+            for i in range(self.grid_height):
+                for j in range(self.grid_width):
+                    if (
+                        self.states[i][j].diamond == "1"
+                        or self.states[i][j].diamond == "2"
+                        or self.states[i][j].diamond == "3"
+                        or self.states[i][j].diamond == "4"
+                        or (self.states[i][j].key == "g" and "g" not in self.key_values)
+                        or (self.states[i][j].key == "r" and "r" not in self.key_values)
+                        or (self.states[i][j].key == "y" and "y" not in self.key_values)
+                    ) and self.states[i][j].available == True:
+                        distance = self.heuristic(
+                            (start.cords[0], start.cords[1]), (i, j)
+                        )
+                        if shortest >= distance:
+                            shortest = distance
+                            dest = (i, j)
 
+            dest_cords = dest
+            source = Point(row_index, column_index)
+            try:
+                dest = Point(dest_cords[0], dest_cords[1])
+            except:
+                pass
 
-  def get_agent(self):
-      for i in range(self.grid_height):
-          for j in range(self.grid_width):
-              if 'A' in self.grid[i][j]:
-                  return self.states[i][j]
-  
+            path = self.BFS(source, dest)
 
+            if path == -1:
+                self.states[dest.x][dest.y].available = False
+            else:
+                found = True
+                self.states[dest.x][dest.y].available = True
 
-  def get_target(self):
-      # print(len(self.diamonds))
-      return self.diamonds.pop(0)
+        path_rewards = []
 
-  def update_grid(self):
-      for i in range(self.grid_height):
-          for j in range(self.grid_width):
+        for i in range(len(path)):
+            path_rewards.append(self.states[path[i].x][path[i].y].r)
 
-              if 'W' in self.grid[i][j]:
-                  self.states[i][j].is_wall = True
-              elif '*' in self.grid[i][j]:
-                  self.states[i][j].is_wired = True
-                  self.states[i][j].type = 'barbed'  
-              elif 'T' in self.grid[i][j]:
-                  self.states[i][j].type = 'teleport'
-              
-              # get doors
-              elif 'G' in self.grid[i][j] and 'G' not in self.collected_keys:
-                  self.states[i][j].door = 'G'
-                  self.states[i][j].is_door = True
-              elif 'R' in self.grid[i][j] and 'R' not in self.collected_keys:
-                  self.states[i][j].door = 'R'
-                  self.states[i][j].is_door = True
-              elif 'Y' in self.grid[i][j] and 'Y' not in self.collected_keys:
-                  self.states[i][j].door = 'Y'
-                  self.states[i][j].is_door = True
-              
-              # get keys
-              elif 'g' in self.grid[i][j] and (i,j) not in self.keys:
-                #   print('g')
-                  self.states[i][j].key = 'g'
-                  self.states[i][j].type = 'slider'
-                  self.keys.append((i,j))
-              elif 'r' in self.grid[i][j] and (i,j) not in self.keys:
-                #   print('r')
-                  self.states[i][j].key = 'r'
-                  self.states[i][j].type = 'slider'
-                  self.keys.append((i,j))
-              elif 'y' in self.grid[i][j] and (i,j) not in self.keys:
-                #   print('y')
-                  self.keys.append((i,j))
-                  self.states[i][j].key = 'y'
-                  self.states[i][j].type = 'slider'
-
-              # get diamonds
-              elif '1' in self.grid[i][j] and self.states[i][j] not in self.diamonds:
-                  self.states[i][j].type = 'slider'
-                  self.states[i][j].diamond = '1'
-                  self.diamonds.append(self.states[i][j])
-              elif '2' in self.grid[i][j] and self.states[i][j] not in self.diamonds:
-                  self.states[i][j].type = 'slider'
-                  self.states[i][j].diamond = '2'
-                  self.diamonds.append(self.states[i][j])
-              elif '3' in self.grid[i][j] and self.states[i][j] not in self.diamonds:
-                  self.states[i][j].type = 'slider'
-                  self.states[i][j].diamond = '3'
-                  self.diamonds.append(self.states[i][j])
-              elif '4' in self.grid[i][j] and self.states[i][j] not in self.diamonds:
-                  self.states[i][j].type = 'slider'
-                  self.states[i][j].diamond = '4'
-                  self.diamonds.append(self.states[i][j])
-  
-  def get_actions(self, row_index, column_index):
-      actions = []
-      if row_index - 1 >= 0:
-          actions.append(Action.UP)
-      if row_index + 1 <= self.grid_height - 1:
-          actions.append(Action.DOWN)
-      if column_index - 1 >= 0:
-          actions.append(Action.LEFT)
-      if column_index + 1 <= self.grid_width - 1:
-          actions.append(Action.RIGHT)
-      if row_index - 1 >= 0 and column_index - 1 >= 0:
-          actions.append(Action.UP_LEFT)
-      if row_index - 1 >= 0 and column_index + 1 <= self.grid_width - 1:
-          actions.append(Action.UP_RIGHT)
-      if row_index + 1 <= self.grid_height - 1 >= 0 and column_index - 1 >= 0:
-          actions.append(Action.DOWN_LEFT)
-      if row_index + 1 <= self.grid_height - 1 >= 0 and column_index + 1 <= self.grid_width - 1:
-          actions.append(Action.DOWN_RIGHT)
-
-      actions.append(Action.NOOP)
-      
-      return actions
-
-  def get_reward(self,):
-    for row in range(self.grid_height):
-      for col in range(self.grid_width):
-        # D = 1
-        # D2 = 2
-        # dx = abs(self.states[row][col].cords[0] - goal.cords[0])
-        # dy = abs(self.states[row][col].cords[1] - goal.cords[1])
-        self.states[row][col].r =  -0.04
-
-        if self.states[row][col].is_wired:
-          self.states[row][col].r = -0.08
-
-        elif self.states[row][col].is_door:
-        #   print('1')
-          rowNum = [-1, 0, 0, 1, 1, -1, 1, -1]
-          colNum = [0, -1, 1, 0, 1, -1, -1, 1]
-          for k in self.collected_keys:
-            # print(k)
-            if k.key.upper() == self.states[row][col].door:
-              self.has_key = True
-              self.states[row][col].r +=0.0
-              for i in range(8):
-                if row + rowNum[i] >= 0 and row + rowNum[i] <= self.grid_height -1 and col + colNum[i] >= 0 and col + colNum[i] <= self.grid_width -1:
-                    self.states[row + rowNum[i]][col + colNum[i]].r += 0
-              
-          if not self.has_key:
-            self.states[row][col].r = self.states[row][col].r - 2
-
-        elif self.states[row][col].is_wall:
-            self.states[row][col].r = self.states[row][col].r - 2
-
-        elif self.states[row][col].key:
-            self.states[row][col].r = self.states[row][col].r + 0.0
-
-        # elif self.states[row][col].diamond == '1' or self.states[row][col].diamond == '2' or self.states[row][col].diamond == '3' or self.states[row][col].diamond == '4':
-        #     self.states[row][col].r = self.states[row][col].r + 40
-        nearest_diamond, distance = self.get_distance()
-
-        goal, goal_type = self.get_near_diamonds() 
-        selected_perm, max_score = self.cluster_max_score(goal_type)
-        x = 1
-        if len(goal_type) != 0:
-            for i in selected_perm:
-                for j in goal:
-                    if i == j.diamond:
-                        j.r = (len(selected_perm)*7)/((distance/3) + x)
-                        # print(j.r)
-                x += 2
-                # print()
+        if 0 in path_rewards:
+            self.states[dest_cords[0]][dest_cords[1]].r = -1
         else:
-            nearest_diamond.r = 1.2 * (distance*3)/2
-            # print(nearest_diamond.r)
-            
-    return distance
-        
-    # goal.r = 1
+            second_diamond = self.states[dest_cords[0]][dest_cords[1]].diamond
+            for i in self.DIAMOND_SCORES.keys():
+                if i == self.last_diamond + second_diamond:
+                    self.states[dest_cords[0]][dest_cords[1]].r = self.DIAMOND_SCORES[i]
 
-    
-  def get_near_diamonds(self):
-        agent = self.get_agent()
-        x ,y = agent.cords[0], agent.cords[1]
-        near_diamonds = []
-        near_diamonds_type =[]
-        for i in range(len(self.diamonds)):
-            if self.diamonds[i].cords[0] <= x+2 and self.diamonds[i].cords[0] >= x-2 and self.diamonds[i].cords[1] <= y+2 and self.diamonds[i].cords[1] >= y-2:
-                near_diamonds_type.append(self.diamonds[i].diamond)
-                near_diamonds.append(self.diamonds[i])
+        addition = 0
+        for k in range(len(path)):
+            addition += 50
+            path[k] = (path[k].x, path[k].y)
+            for i in range(self.grid_height):
+                for j in range(self.grid_width):
+                    if path[k] == (i, j):
+                        self.states[i][j].r += addition
+        return len(path)
 
 
-        return near_diamonds , near_diamonds_type
+    def isValid(self, row, col):
+        return (
+            (row >= 0)
+            and (row < self.grid_height)
+            and (col >= 0)
+            and (col < self.grid_width)
+        )
 
-  def cluster_max_score(self, goal):
-        perm = list(permutations(goal))  
-        my_max = 0
-        selected_perm = []
-        for j in perm:
-            s = 0
-            for i in range(len(j) - 1):
-                if str(j[i][0]) + str(j[i+1][0]) in list(self.DIAMOND_SCORES.keys()):
-                    s = s + self.DIAMOND_SCORES[str(j[i][0]) + str(j[i+1][0])]
-            if s >= my_max:
-                my_max = s
-                selected_perm = j
-                
-        return selected_perm, my_max
+    rowNum = [-1, 0, 0, 1, 1, -1, 1, -1]
+    colNum = [0, -1, 1, 0, 1, -1, -1, 1]
 
-  def get_distance(self):
-        '''implemented with diagonal distance as the heuristic function'''
-        agent = self.get_agent()
-        x ,y = agent.cords[0], agent.cords[1]
+    def BFS(self, start, dest):
+
+        mat = np.ones((self.grid_height, self.grid_width))
+        for i in range(self.grid_height):
+            for j in range(self.grid_width):
+                if self.states[i][j].is_wall == True:
+                    mat[i, j] = 0
+                elif self.states[i][j].is_door == True:
+                    mat[i, j] = 0
+
+        visited = [
+            [False for i in range(self.grid_width)] for j in range(self.grid_height)
+        ]
+        visited[start.x][start.y] = True
+        q = deque()
+        s = queueNode(start, 0)
+        q.append(s)
+
+        while q:
+
+            curr = q.popleft()
+            pt = curr.pt
+            if pt.x == dest.x and pt.y == dest.y:
+                path = []
+                self.getPath(curr, path)
+                return path
+
+            for i in range(8):
+                row = pt.x + self.rowNum[i]
+                col = pt.y + self.colNum[i]
+
+                if self.isValid(row, col) and mat[row][col] == 1:
+                    Adjcell = queueNode(Point(row, col), curr.dist + 1, curr)
+                    if not visited[row][col]:
+                        visited[row][col] = True
+                        q.append(Adjcell)
+
+        return -1
+
+    def getPath(self, node, path=[]):
+        if node:
+            self.getPath(node.parent, path)
+            path.append(node.pt)
+
+    def heuristic(self, start, goal):
         D = 1
         D2 = 2
-        distance = 2**32
-        nearest_diamond =''
-        for i in range(len(self.diamonds)):  
-            dx = abs(x - self.diamonds[i].cords[0])
-            dy = abs(y - self.diamonds[i].cords[1])
-            tmp = D * (dx + dy) + (D2 - 2 * D) * min(dx, dy)
-            if tmp < distance:
-                distance = tmp
-                nearest_diamond = self.diamonds[i]
-                # print(nearest_diamond.cords)
-                
-        return nearest_diamond, distance
+        dx = abs(start[0] - goal[0])
+        dy = abs(start[1] - goal[1])
+        return D * (dx + dy) + (D2 - 2 * D) * min(dx, dy)
 
-
-#   def get_next_action(self, current_row_index, current_column_index, epsilon):
-#       if np.random.random() < epsilon:
-#         #   print(self.total_actions[np.argmax(self.q_values[current_row_index, current_column_index])])
-#         #   print(np.argmax(self.q_values[current_row_index, current_column_index]))
-#         #   print("1")
-#         #   print("||||||||||||||||")
-#           return self.total_actions[np.argmax(self.q_values[current_row_index, current_column_index])]
-#       else:
-#         #   print(self.total_actions[np.random.randint(9)])
-#         #   print("2")
-#         #   print("||||||||||||||||")
-#           return self.total_actions[np.random.randint(9)]
-
-  def get_next_location(self, row_index, column_index ,epsilon):
+    def get_next_location(self, row_index, column_index, epsilon):
 
         if np.random.random() < epsilon:
-        #   print(self.total_actions[np.argmax(self.q_values[current_row_index, current_column_index])])
-        #   print(np.argmax(self.q_values[current_row_index, current_column_index]))
-        #   print("1")
-        #   print("||||||||||||||||")
-            action = self.total_actions[np.argmax(self.q_values[row_index, column_index])]
+            action = self.total_actions[
+                np.argmax(self.q_values[row_index, column_index])
+            ]
         else:
-        #   print(self.total_actions[np.random.randint(9)])
-        #   print("2")
-        #   print("||||||||||||||||")
             action = self.total_actions[np.random.randint(9)]
 
         actions = self.get_actions(row_index, column_index)
 
-        # print(action)
-        # print("|||||||||||")
         if action in actions:
-            # print(action.value)
 
             if action == Action.UP:
-                row_index, column_index = row_index-1, column_index
+                row_index, column_index = row_index - 1, column_index
 
             if action == Action.DOWN:
-                row_index, column_index = row_index+1, column_index
+                row_index, column_index = row_index + 1, column_index
 
             if action == Action.RIGHT:
-                row_index, column_index = row_index, column_index+1
+                row_index, column_index = row_index, column_index + 1
 
             if action == Action.LEFT:
-                row_index, column_index = row_index, column_index-1
+                row_index, column_index = row_index, column_index - 1
 
             if action == Action.UP_LEFT:
-                row_index, column_index = row_index-1, column_index-1
+                row_index, column_index = row_index - 1, column_index - 1
 
             if action == Action.UP_RIGHT:
-                row_index, column_index = row_index-1, column_index+1
+                row_index, column_index = row_index - 1, column_index + 1
 
             if action == Action.DOWN_LEFT:
-                row_index, column_index = row_index+1, column_index-1
+                row_index, column_index = row_index + 1, column_index - 1
 
             if action == Action.DOWN_RIGHT:
-                row_index, column_index = row_index+1, column_index+1
-            # print(row_index, column_index)
-        # print(row_index, column_index)
-            # print(action.value)
+                row_index, column_index = row_index + 1, column_index + 1
+
             return action, row_index, column_index
         else:
             return Action.NOOP, row_index, column_index
-            
-        
 
-  def is_End(self, state, target):
-      if state == target:
-          return True
-      return False
+    def is_terminal_state(self, current_row_index, current_column_index):
+        for row in range(self.grid_height):
+            for col in range(self.grid_width):
+                if row == current_row_index and col == current_column_index:
+                    if self.states[row][col].r < -5:
+                        return True
+                    else:
+                        return False
 
-  def is_terminal_state(self, current_row_index, current_column_index):
-      for row in range(self.grid_height):
-        for col in range(self.grid_width):
-            if row == current_row_index and col == current_column_index:
-                if self.states[row][col].r < -5:
-                    return True
-                else:
-                    return False
-            
-             
+    def get_shortest_path(self, row_index, column_index):
+        terminal = self.is_terminal_state(row_index, column_index)
 
-
-  def get_shortest_path(self, row_index, column_index ):
-      terminal = self.is_terminal_state(row_index, column_index)
-    
-      if terminal:
-        print("1")
-        # print(row_index, column_index)
-        # print()
-        return Action.NOOP
-      else:
-    #   best_actions.append()
-
-        # print(action.value)
-        action, row_index, column_index = self.get_next_location(row_index, column_index, 1.) 
-        # print(row_index, column_index
-        return action
-    #   shortest_path.append([row_index, column_index])
-      
-
-  def q_learning(self, row_index, column_index, distance):
-    terminal = self.is_terminal_state(row_index, column_index)
-    epsilon = 0.8
-    if (self.turn_num >= 23 and self.turn_num <= 59) or (self.turn_num >= 71 and self.turn_num <= 100):
-        # print(self.turn_num)
-        # print(distance)
-        if distance <= 2:
-            epsilon = 0.83 + 0.12 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >2 and distance < 4:
-            epsilon = 0.78 + 0.05 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 4 and distance < 6 :
-            epsilon = 0.67 + 0.07 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 6 and distance < 8 :
-            epsilon = 0.5 + 0.12 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 8 :
-            epsilon = 0.35 + 0.30 #the percentage of time when we should take the best action (instead of a random action)
-    elif (self.turn_num >= 0 and self.turn_num <= 22) or (self.turn_num >= 60 and self.turn_num <= 70):
-        if distance <= 2:
-            epsilon = 0.83 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >2 and distance < 4:
-            epsilon = 0.78 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 4 and distance < 6 :
-            epsilon = 0.67 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 6 and distance < 8 :
-            epsilon = 0.5 #the percentage of time when we should take the best action (instead of a random action)
-        elif distance >= 8 :
-            epsilon = 0.35 #the percentage of time when we should take the best action (instead of a random action)
-
-    # print(epsilon)
-    learning_rate = 0.75 #the rate at which the AI agent should learn
-    discount_factor = 0.85 #discount factor for future rewards
-    q_diamonds = self.diamonds
-
-    is_frist_action = True
-    old_action =''
-
-    #run through 1000 training episodes
-    for episode in range(22250):
-    #   print("1")
-      #get the starting location for this episode
-
-      #continue taking actions (i.e., moving) until we reach a terminal state
-      #(i.e., until we reach the item packaging area or crash into an item storage location)
-    #   print(row_index, column_index)
-      if len(q_diamonds) != 0:
-        q_diamonds.pop(0)
-      while ((not terminal and (not self.states[row_index][column_index].is_wall)) and (row_index >= 0 and row_index <= self.grid_height -1 and column_index >= 0 and column_index <= self.grid_width -1) ) and (len(q_diamonds) != 0):
-        #choose which action to take (i.e., where to move next)
-        #perform the chosen action, and transition to the next state (i.e., move to the next location)
-        old_row_index, old_column_index = row_index, column_index #store the old row and column indexes
-        if not is_frist_action:
-            old_action = action
+        if terminal:
+            return Action.NOOP
         else:
-            is_frist_action = False
+            action, row_index, column_index = self.get_next_location(
+                row_index, column_index, 1
+            )
+            return action
 
-        if self.states[old_row_index][old_column_index].is_door:
-            self.states[old_row_index][old_column_index].r = -0.04
 
-        action, row_index, column_index = self.get_next_location(row_index, column_index, epsilon)
-        action_index = self.total_actions.index(action)
-        if old_action == Action.NOOP and action == Action.NOOP:
-            self.states[old_row_index][old_column_index].r -= 0.04
+    def q_learning(self, row_index, column_index, distance):
+        epsilon = 0.9
+
+        if distance <= 2:
+            epsilon = 0.95
+        elif distance > 2 and distance < 4:
+            epsilon = 0.85
+        elif distance >= 4 and distance < 6:
+            epsilon = 0.78
+        elif distance >= 6 and distance < 8:
+            epsilon = 0.69
         else:
-            self.states[old_row_index][old_column_index].r -= 0.04
-        # print(row_index, column_index)
-        # print("2")
-        #receive the reward for moving to the new state, and calculate the temporal difference
-        reward = self.states[row_index][column_index].r
-        # print(row_index, column_index)
-        # print(reward)
-        old_q_value = self.q_values[old_row_index, old_column_index, action_index]
-        # print(old_q_value)
-        # print(row_index, column_index)
-        temporal_difference = reward + (discount_factor * np.max(self.q_values[row_index, column_index])) - old_q_value
-        # print(temporal_difference)
-        # print("|||||||||")
-        #update the Q-value for the previous state and action pair
-        new_q_value = old_q_value + (learning_rate * temporal_difference)
-        self.q_values[old_row_index, old_column_index, action_index] = new_q_value
-        if (self.states[row_index][column_index].diamond == '1' or self.states[row_index][column_index].diamond == '2' or self.states[row_index][column_index].diamond == '3' or self.states[row_index][column_index].diamond == '4') and (self.states[row_index][column_index] in self.diamonds):
-            self.states[row_index][column_index].diamond = ''
-            # self.states[row_index][column_index].r = -0.04
-            self.states[row_index][column_index].r += -0.08
-        if (self.states[row_index][column_index].key == 'y' or self.states[row_index][column_index].key == 'r' or self.states[row_index][column_index].key == 'g') and (self.states[row_index][column_index] in self.collected_keys):
-            self.states[row_index][column_index].key = ''
-            self.states[row_index][column_index].r = -0.04
-            self.states[row_index][column_index].r += -0.04
-        if self.states[row_index][column_index].is_wired:
-            self.states[row_index][column_index].is_wired = ''
-            self.states[row_index][column_index].r = -0.04
-            self.states[row_index][column_index].r += -0.04
+            epsilon = 0.6
 
-        for k in self.collected_keys:
-            if k.key.upper() == self.states[row_index][column_index].door:
-                self.has_key = True
+        learning_rate = 0.5
+        discount_factor = 0.1
+        q_diamonds = self.diamonds
 
-        if self.states[row_index][column_index].is_door and self.has_key:
-            self.states[row_index][column_index].is_door = ''
-            self.states[row_index][column_index].r = -0.04
-            self.states[row_index][column_index].r +=0.04
-        
-    
-    # def print_stuff(self):
-    #     for s in self.states:
-    #         print(s, s.v, s.pi)
-if __name__ == '__main__':
-  data = Agent().play()
-  print("FINISH : ", data)
+        for episode in range(70000):
+            if len(q_diamonds) != 0:
+                q_diamonds.pop(0)
+            while (
+                not self.is_terminal_state(row_index, column_index)
+                and (
+                    row_index >= 0
+                    and row_index <= self.grid_height - 1
+                    and column_index >= 0
+                    and column_index <= self.grid_width - 1
+                )
+                and len(q_diamonds) != 0
+            ):
+                old_row_index, old_column_index = (
+                    row_index,
+                    column_index,
+                )
+                self.states[old_row_index][old_column_index].r -= 1
+                action, row_index, column_index = self.get_next_location(
+                    row_index, column_index, epsilon
+                )
+                action_index = self.total_actions.index(action)
+                reward = self.states[row_index][column_index].r
+                old_q_value = self.q_values[
+                    old_row_index, old_column_index, action_index
+                ]
+                temporal_difference = (
+                    reward
+                    + (discount_factor * np.max(self.q_values[row_index, column_index]))
+                    - old_q_value
+                )
+
+                new_q_value = old_q_value + (learning_rate * temporal_difference)
+                self.q_values[
+                    old_row_index, old_column_index, action_index
+                ] = new_q_value
+                if (
+                    self.states[row_index][column_index].diamond == "1"
+                    or self.states[row_index][column_index].diamond == "2"
+                    or self.states[row_index][column_index].diamond == "3"
+                    or self.states[row_index][column_index].diamond == "4"
+                ):
+                    self.states[row_index][column_index].diamond = ""
+                    self.states[row_index][column_index].r = -1
+                elif (
+                    self.states[row_index][column_index].key == "g"
+                    or self.states[row_index][column_index].key == "r"
+                    or self.states[row_index][column_index].key == "y"
+                ) and (self.states[row_index][column_index] in self.collected_keys):
+                    self.states[row_index][column_index].r = -1
+
+
+class Point:
+    def __init__(self, x: int, y: int):
+        self.x = x
+        self.y = y
+
+
+class queueNode:
+    def __init__(self, pt: Point, dist: int, parent=None):
+        self.pt = pt
+        self.dist = dist
+        self.parent = parent
+
+
+if __name__ == "__main__":
+    data = Agent().play()
+    print("FINISH : ", data)

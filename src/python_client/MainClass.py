@@ -1,5 +1,3 @@
-
-
 class Node:
 
     def __init__(self, cords, reward):
@@ -14,4 +12,5 @@ class Node:
         self.v = 0
         self.r = reward
         self.pi = 0
+        self.available = True
 
