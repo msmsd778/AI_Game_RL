@@ -96,9 +96,6 @@ class Agent(BaseAgent):
                 if "A" in self.grid[i][j]:
                     return self.states[i][j]
 
-    def get_target(self):
-        return self.diamonds.pop(0)
-
     def update_grid(self):
         for i in range(self.grid_height):
             for j in range(self.grid_width):
